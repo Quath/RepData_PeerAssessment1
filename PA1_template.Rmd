@@ -1,25 +1,165 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Reproducible Reasearch Assignment 1"
+author: "Anna-Lea Lesage"
+date: "January 23, 2019"
+output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-## Loading and preprocessing the data
+## Reading and Preparing the data
 
+The zipped dataset is already present, I just need to unpack and read it in:
+```{r}
+unzip('activity.zip', 'activity.csv')
+data <- read.csv('activity.csv')
+```
+In preparation of furhter date manipulation, I add a new column called *days* which holds
+the converted *date* column in Date. 
 
+```{r}
+data$days <- as.Date(data$date, format="%Y-%m-%d")
+```
 
-## What is mean total number of steps taken per day?
+## Mean total number of steps taken per day
 
+I will ignore the missing values in the dataset.
+Firstly let's fetch the total number of steps taken per day, and store it in a new variable.
+We can visualise the total number of steps taken each day.
 
+```{r}
+library(dplyr)
+total_step_per_day <- data %>% group_by(days) %>% summarize(result = sum(steps, na.rm=TRUE))
+plot(total_step_per_day$days, total_step_per_day$result,
+     type='h',
+     xlab="date", ylab="total number of steps",
+     main="Total number of steps over the days")
+```
+```
+
+Then we just need to gather the mean number of steps.
+
+```{r}
+mean(total_step_per_day$result)
+median(total_step_per_day$result)
+```
+
+The mean is smaller than the median because on some days, no steps were taken.
 
 ## What is the average daily activity pattern?
 
+I calculate the average number of steps taken for each interval over all days.
+```{r}
+steps_per_interval <- data %>% group_by(interval) %>% summarise(result = mean(steps, na.rm = TRUE))
+plot(steps_per_interval$interval, steps_per_interval$result, 'l',
+     xlab="Interval (hhmm)", ylab="Average number of steps",
+     main="Averaged Number of steps during the day")
+```
 
+We can see that one time interval has a clear maximal number of steps compared to the others.
+This moment is:
+```{r}
+steps_per_interval$interval[
+        steps_per_interval$result== max(
+                steps_per_interval$result
+        )
+]
+```
 
 ## Imputing missing values
+
+The total number of missing values (regardless of the column) can be inputed via:
+```{r}
+sum(is.na(data) == TRUE)
+```
+
+Per column we have:
+```{r}
+sum(is.na(data$steps) == TRUE)
+sum(is.na(data$interval) == TRUE)
+sum(is.na(data$date) == TRUE)
+```
+The dataset has only missing values in the *steps* column.
+
+These missing values can be replaced using one of the following methods:
+
+* The median number of steps of that day regarless of the interval
+* The median number of steps for that interval regardless of the day
+* The average between the next 2 adjacent values via linear interpolation.
+
+In order to choose the best one, I need to answer two questions:
+
+* dp the missing values occur more often at a given interval?
+* do the missing value occur for a whole day?
+
+```{r}
+plot(data$interval, is.na(data$steps))
+```
+```{r}
+plot(data$days, is.na(data$steps))
+```
+
+Apparently, the missing values are present evently regarless of the time of the day. However judging from the secon dplot, there are whole days where we have no data. As such replacing the NaN of a day by the median or average step value for that day is not possible.
+
+### Using the median number of steps of the interval
+
+I make a copy of the data set to not affect the original. Then I loop over the unique day values to replace all the NA with the values computed earlier
+
+```{r}
+test2 <- data
+
+for(interval in unique(test2$interval)) {
+    test2$steps[test2$interval == interval] <- replace(
+        test2$steps[test2$interval == interval], 
+        is.na(test2$steps[test2$interval == interval]),
+        steps_per_interval$result[steps_per_interval$interval == interval]
+    )
+}
+```
+
+How does it compare with the original dataset?
+```{r}
+total_test2 <- test2 %>% group_by(days) %>% summarize(result = sum(steps))
+plot(total_test2$days, total_test2$result,
+     type='h',
+     xlab="date", ylab="total number of steps",
+     main="Total number of steps over the days")
+```
+
+How does it compare to the previous mean and median?
+```{r}
+(mean(total_step_per_day$result) - mean(total_test2$result)) / mean(total_step_per_day$result) 
+(median(total_step_per_day$result) - median(total_test2$result)) / median(total_step_per_day$result)
+```
 
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+I create a variable which contains the names of the days in the weekend (in dutch as my system is in dutch).
+```{r}
+weekend_days <- list('zaterdag', 'zondag')
+```
+And now I add a new column to the dataset with a Boolean which is *true* if the day is a weekday
+and *false* otherwise.
+
+```{r}
+test2 <- test2 %>% mutate(weekday = !weekdays(days) %in% weekend_days)
+```
+
+And compute the number of steps taken in average per interval over the days
+```{r}
+test3 <- test2 %>% group_by(interval, weekday) %>% summarise(result=mean(steps))
+```
+
+Let's make a panel plot to compare both results:
+```{r}
+par(mfrow=c(2, 1))
+plot(test3$interval[test3$weekday], test3$result[test3$weekday], 'l',
+     xlab="Interval (hhmm)", ylab="Average number of steps", main="For weekdays")
+plot(test3$interval[!test3$weekday], test3$result[!test3$weekday], 'l',
+     xlab="Interval (hhmm)", ylab="Average number of steps", main="For week-ends")
+```
+
